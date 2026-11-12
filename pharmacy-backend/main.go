@@ -13,16 +13,16 @@ import (
 )
 
 func main() {
-	// Load Environment Variables
+	// Load .env (ถ้าไม่มี ให้ใช้ Environment Variables)
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Cannot load .env file:", err)
+		log.Println(".env file not found, using environment variables")
+	} else {
+		log.Println(".env loaded successfully")
 	}
-
-	log.Println(".env loaded successfully")
 
 	// Check JWT Secret
 	if os.Getenv("JWT_SECRET") == "" {
-		log.Fatal("JWT_SECRET is empty. Please check your .env file")
+		log.Fatal("JWT_SECRET is empty. Please check Environment Variables")
 	}
 
 	log.Println("JWT_SECRET loaded successfully")
@@ -33,6 +33,8 @@ func main() {
 		log.Fatal("Database connection failed:", err)
 	}
 	defer db.Close()
+
+	log.Println("Database connected successfully")
 
 	// Setup Routes
 	mux := routes.New(db)
