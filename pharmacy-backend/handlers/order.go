@@ -27,13 +27,20 @@ type OrderResponse struct {
 	Items   []OrderItemResponse `json:"items"`
 }
 
+type AdminOrder struct {
+	OrderID   int                 `json:"order_id"`
+	UserID    int                 `json:"user_id"`
+	Total     float64             `json:"total"`
+	OrderDate string              `json:"order_date"`
+	Items     []OrderItemResponse `json:"items"`
+}
+
 func orderWriteJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// อ่าน user_id จาก Context แบบเดียวกับ CartHandler
 func getOrderUserID(r *http.Request) (int, bool) {
 	userID, ok := r.Context().Value("user_id").(int)
 	return userID, ok && userID > 0
@@ -60,7 +67,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. ค้นหาตะกร้าของผู้ใช้และล็อกแถวไว้
 	var cartID int
 
 	err = tx.QueryRow(ctx, `
@@ -84,7 +90,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. อ่านสินค้าในตะกร้าและล็อกแถวสินค้า
 	rows, err := tx.Query(ctx, `
 		SELECT
 			ci.product_id,
@@ -113,15 +118,13 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		var item OrderItemResponse
 		var stock int
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&item.ProductID,
 			&item.Name,
 			&item.Quantity,
 			&item.Price,
 			&stock,
-		)
-
-		if err != nil {
+		); err != nil {
 			rows.Close()
 			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "อ่านข้อมูลสินค้าไม่สำเร็จ",
@@ -147,7 +150,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 		item.Subtotal = item.Price * float64(item.Quantity)
 		total += item.Subtotal
-
 		items = append(items, item)
 	}
 
@@ -167,7 +169,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. สร้างคำสั่งซื้อ
 	var orderID int
 
 	err = tx.QueryRow(ctx, `
@@ -183,18 +184,12 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. บันทึกรายการสินค้าและหักสต็อก
 	for _, item := range items {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO order_items
 				(order_id, product_id, quantity, price)
 			VALUES ($1, $2, $3, $4)
-		`,
-			orderID,
-			item.ProductID,
-			item.Quantity,
-			item.Price,
-		)
+		`, orderID, item.ProductID, item.Quantity, item.Price)
 
 		if err != nil {
 			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
@@ -218,7 +213,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. ล้างรายการสินค้าในตะกร้า
 	_, err = tx.Exec(ctx, `
 		DELETE FROM cart_items
 		WHERE cart_id = $1
@@ -231,7 +225,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. ยืนยัน Transaction
 	if err := tx.Commit(ctx); err != nil {
 		orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "ยืนยันคำสั่งซื้อไม่สำเร็จ",
@@ -257,7 +250,7 @@ func (h *OrderHandler) GetMyOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(r.Context(), `
-		SELECT order_id, total, order_date
+		SELECT order_id, total, order_date::text
 		FROM orders
 		WHERE user_id = $1
 		ORDER BY order_date DESC
@@ -282,13 +275,11 @@ func (h *OrderHandler) GetMyOrders(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var order MyOrder
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&order.OrderID,
 			&order.Total,
 			&order.OrderDate,
-		)
-
-		if err != nil {
+		); err != nil {
 			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "อ่านประวัติคำสั่งซื้อไม่สำเร็จ",
 			})
@@ -303,6 +294,110 @@ func (h *OrderHandler) GetMyOrders(w http.ResponseWriter, r *http.Request) {
 			"error": "อ่านประวัติคำสั่งซื้อไม่สำเร็จ",
 		})
 		return
+	}
+
+	orderWriteJSON(w, http.StatusOK, map[string]interface{}{
+		"orders": orders,
+	})
+}
+
+// GET /api/admin/orders
+func (h *OrderHandler) GetAllOrders(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	rows, err := h.DB.Query(ctx, `
+		SELECT order_id, user_id, total, order_date::text
+		FROM orders
+		ORDER BY order_date DESC
+	`)
+
+	if err != nil {
+		orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "ไม่สามารถโหลดคำสั่งซื้อทั้งหมดได้",
+		})
+		return
+	}
+
+	orders := []AdminOrder{}
+
+	for rows.Next() {
+		var order AdminOrder
+
+		if err := rows.Scan(
+			&order.OrderID,
+			&order.UserID,
+			&order.Total,
+			&order.OrderDate,
+		); err != nil {
+			rows.Close()
+			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "อ่านข้อมูลคำสั่งซื้อไม่สำเร็จ",
+			})
+			return
+		}
+
+		order.Items = []OrderItemResponse{}
+		orders = append(orders, order)
+	}
+
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "อ่านข้อมูลคำสั่งซื้อไม่สำเร็จ",
+		})
+		return
+	}
+	rows.Close()
+
+	for i := range orders {
+		itemRows, err := h.DB.Query(ctx, `
+			SELECT
+				oi.product_id,
+				COALESCE(p.product_name, 'สินค้าถูกลบ'),
+				oi.quantity,
+				oi.price
+			FROM order_items oi
+			LEFT JOIN products p ON p.product_id = oi.product_id
+			WHERE oi.order_id = $1
+			ORDER BY oi.order_item_id
+		`, orders[i].OrderID)
+
+		if err != nil {
+			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "ไม่สามารถโหลดรายการสินค้าได้",
+			})
+			return
+		}
+
+		for itemRows.Next() {
+			var item OrderItemResponse
+
+			if err := itemRows.Scan(
+				&item.ProductID,
+				&item.Name,
+				&item.Quantity,
+				&item.Price,
+			); err != nil {
+				itemRows.Close()
+				orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+					"error": "อ่านรายการสินค้าไม่สำเร็จ",
+				})
+				return
+			}
+
+			item.Subtotal = item.Price * float64(item.Quantity)
+			orders[i].Items = append(orders[i].Items, item)
+		}
+
+		if err := itemRows.Err(); err != nil {
+			itemRows.Close()
+			orderWriteJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "อ่านรายการสินค้าไม่สำเร็จ",
+			})
+			return
+		}
+
+		itemRows.Close()
 	}
 
 	orderWriteJSON(w, http.StatusOK, map[string]interface{}{
