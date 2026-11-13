@@ -13,7 +13,11 @@ import (
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+	writeJSON(w, status, data)
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
