@@ -71,6 +71,10 @@ func New(db *pgxpool.Pool) http.Handler {
 	mux.Handle("GET /api/admin/users",
 		middleware.RequireAdmin(http.HandlerFunc(adminHandler.GetUsers)))
 
+	// Admin Orders
+	mux.Handle("GET /api/admin/orders",
+		middleware.RequireAdmin(http.HandlerFunc(orderHandler.GetAllOrders)))
+
 	// Health Check
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
