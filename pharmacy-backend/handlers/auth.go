@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"pharmacy-backend/authcontext"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -26,6 +28,12 @@ type RegisterRequest struct {
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+// ใช้ชื่อ MemberChangePasswordRequest เพื่อไม่ให้ซ้ำกับ admin.go
+type MemberChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 type UserClaims struct {
@@ -136,6 +144,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		[]byte(hashedPassword),
 		[]byte(req.Password),
 	)
+
 	if err != nil {
 		respondJSON(w, http.StatusUnauthorized, map[string]string{
 			"error": "Email หรือ Password ไม่ถูกต้อง",
@@ -176,5 +185,113 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"user_id":  userID,
 		"username": username,
 		"role":     role,
+	})
+}
+
+// ChangePassword: สมาชิกเปลี่ยนรหัสผ่านของบัญชีตัวเอง
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(authcontext.UserIDKey).(int)
+
+	if !ok || userID <= 0 {
+		respondJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "กรุณาเข้าสู่ระบบ",
+		})
+		return
+	}
+
+	var req MemberChangePasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "ข้อมูลไม่ถูกต้อง",
+		})
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "กรุณากรอกรหัสผ่านให้ครบ",
+		})
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร",
+		})
+		return
+	}
+
+	if req.CurrentPassword == req.NewPassword {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var hashedPassword string
+
+	err := h.DB.QueryRow(ctx, `
+		SELECT password
+		FROM users
+		WHERE user_id = $1
+	`, userID).Scan(&hashedPassword)
+
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "ไม่สามารถตรวจสอบบัญชีได้",
+		})
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(hashedPassword),
+		[]byte(req.CurrentPassword),
+	)
+
+	if err != nil {
+		respondJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "รหัสผ่านเดิมไม่ถูกต้อง",
+		})
+		return
+	}
+
+	newHashedPassword, err := bcrypt.GenerateFromPassword(
+		[]byte(req.NewPassword),
+		bcrypt.DefaultCost,
+	)
+
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "ไม่สามารถเข้ารหัสรหัสผ่านใหม่ได้",
+		})
+		return
+	}
+
+	result, err := h.DB.Exec(ctx, `
+		UPDATE users
+		SET password = $1
+		WHERE user_id = $2
+	`, string(newHashedPassword), userID)
+
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "ไม่สามารถเปลี่ยนรหัสผ่านได้",
+		})
+		return
+	}
+
+	if result.RowsAffected() == 0 {
+		respondJSON(w, http.StatusNotFound, map[string]string{
+			"error": "ไม่พบบัญชีสมาชิก",
+		})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": "เปลี่ยนรหัสผ่านสำเร็จ",
 	})
 }

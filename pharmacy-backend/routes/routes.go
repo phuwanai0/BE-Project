@@ -1,4 +1,3 @@
-
 package routes
 
 import (
@@ -26,6 +25,14 @@ func New(db *pgxpool.Pool) http.Handler {
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
 
+	// MEMBER - CHANGE OWN PASSWORD
+	mux.Handle(
+		"PUT /api/change-password",
+		middleware.Auth(
+			http.HandlerFunc(authHandler.ChangePassword),
+		),
+	)
+
 	// PRODUCTS - PUBLIC
 	mux.HandleFunc("GET /api/products", productHandler.GetProducts)
 	mux.HandleFunc("GET /api/products/search", productHandler.SearchProducts)
@@ -35,23 +42,17 @@ func New(db *pgxpool.Pool) http.Handler {
 	// PRODUCTS - ADMIN
 	mux.Handle(
 		"POST /api/products",
-		middleware.RequireAdmin(
-			http.HandlerFunc(productHandler.CreateProduct),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.CreateProduct)),
 	)
 
 	mux.Handle(
 		"PUT /api/products/{id}",
-		middleware.RequireAdmin(
-			http.HandlerFunc(productHandler.UpdateProduct),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.UpdateProduct)),
 	)
 
 	mux.Handle(
 		"DELETE /api/products/{id}",
-		middleware.RequireAdmin(
-			http.HandlerFunc(productHandler.DeleteProduct),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.DeleteProduct)),
 	)
 
 	// CATEGORIES - PUBLIC
@@ -61,98 +62,72 @@ func New(db *pgxpool.Pool) http.Handler {
 	// CATEGORIES - ADMIN
 	mux.Handle(
 		"POST /api/categories",
-		middleware.RequireAdmin(
-			http.HandlerFunc(categoryHandler.CreateCategory),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.CreateCategory)),
 	)
 
 	mux.Handle(
 		"PUT /api/categories/{id}",
-		middleware.RequireAdmin(
-			http.HandlerFunc(categoryHandler.UpdateCategory),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.UpdateCategory)),
 	)
 
 	mux.Handle(
 		"DELETE /api/categories/{id}",
-		middleware.RequireAdmin(
-			http.HandlerFunc(categoryHandler.DeleteCategory),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.DeleteCategory)),
 	)
 
 	// CART - AUTHENTICATED
 	mux.Handle(
 		"GET /api/cart",
-		middleware.RequireAuth(
-			http.HandlerFunc(cartHandler.GetCart),
-		),
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.GetCart)),
 	)
 
 	mux.Handle(
 		"POST /api/cart/items",
-		middleware.RequireAuth(
-			http.HandlerFunc(cartHandler.AddCartItem),
-		),
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.AddCartItem)),
 	)
 
 	mux.Handle(
 		"PUT /api/cart/items/{id}",
-		middleware.RequireAuth(
-			http.HandlerFunc(cartHandler.UpdateCartItem),
-		),
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.UpdateCartItem)),
 	)
 
 	mux.Handle(
 		"DELETE /api/cart/items/{id}",
-		middleware.RequireAuth(
-			http.HandlerFunc(cartHandler.RemoveCartItem),
-		),
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.RemoveCartItem)),
 	)
 
 	// ORDERS - AUTHENTICATED
 	mux.Handle(
 		"POST /api/orders",
-		middleware.RequireAuth(
-			http.HandlerFunc(orderHandler.CreateOrder),
-		),
+		middleware.RequireAuth(http.HandlerFunc(orderHandler.CreateOrder)),
 	)
 
 	mux.Handle(
 		"GET /api/orders/my",
-		middleware.RequireAuth(
-			http.HandlerFunc(orderHandler.GetMyOrders),
-		),
+		middleware.RequireAuth(http.HandlerFunc(orderHandler.GetMyOrders)),
 	)
 
 	// ADMIN USERS
 	mux.Handle(
 		"GET /api/admin/users",
-		middleware.RequireAdmin(
-			http.HandlerFunc(adminHandler.GetUsers),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(adminHandler.GetUsers)),
 	)
 
-	// Admin can still change a member's password
+	// ADMIN CHANGE MEMBER PASSWORD
 	mux.Handle(
 		"PUT /api/admin/users/{id}/password",
-		middleware.RequireAdmin(
-			http.HandlerFunc(adminHandler.UpdateUserPassword),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(adminHandler.UpdateUserPassword)),
 	)
 
 	mux.Handle(
 		"DELETE /api/admin/users/{id}",
-		middleware.RequireAdmin(
-			http.HandlerFunc(adminHandler.DeleteUser),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(adminHandler.DeleteUser)),
 	)
 
 	// ADMIN ORDERS
 	mux.Handle(
 		"GET /api/admin/orders",
-		middleware.RequireAdmin(
-			http.HandlerFunc(orderHandler.GetAllOrders),
-		),
+		middleware.RequireAdmin(http.HandlerFunc(orderHandler.GetAllOrders)),
 	)
 
 	// HEALTH CHECK
