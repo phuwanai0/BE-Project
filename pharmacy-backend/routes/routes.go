@@ -19,6 +19,7 @@ func New(db *pgxpool.Pool) http.Handler {
 	categoryHandler := handlers.CategoryHandler{DB: db}
 	authHandler := handlers.AuthHandler{DB: db}
 	cartHandler := handlers.CartHandler{DB: db}
+	adminHandler := handlers.AdminHandler{DB: db}
 
 	// =====================================
 	// Authentication API
@@ -103,6 +104,15 @@ func New(db *pgxpool.Pool) http.Handler {
 	mux.Handle(
 		"DELETE /api/cart/items/{id}",
 		middleware.RequireAuth(http.HandlerFunc(cartHandler.RemoveCartItem)),
+	)
+
+	// =====================================
+	// Admin API
+	// =====================================
+
+	mux.Handle(
+		"GET /api/admin/users",
+		middleware.RequireAdmin(http.HandlerFunc(adminHandler.GetUsers)),
 	)
 
 	// =====================================
