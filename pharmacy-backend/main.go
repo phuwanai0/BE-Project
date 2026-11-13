@@ -13,15 +13,16 @@ import (
 )
 
 func main() {
-	// Load .env (ถ้าไม่มี ให้ใช้ Environment Variables)
+	// Load .env (Render ใช้ Environment Variables)
 	if err := godotenv.Load(); err != nil {
 		log.Println(".env file not found, using environment variables")
 	} else {
 		log.Println(".env loaded successfully")
 	}
 
-	// Check JWT Secret
-	if os.Getenv("JWT_SECRET") == "" {
+	// Check JWT_SECRET
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET is empty. Please check Environment Variables")
 	}
 
@@ -48,5 +49,7 @@ func main() {
 	log.Println("Server running on port", port)
 
 	// Start Server
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatal("Server stopped:", err)
+	}
 }
