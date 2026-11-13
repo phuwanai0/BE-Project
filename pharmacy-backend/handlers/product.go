@@ -23,6 +23,7 @@ type Product struct {
 	Stock        int     `json:"stock"`
 	CategoryID   int     `json:"category_id"`
 	CategoryName string  `json:"category_name,omitempty"`
+	ImageURL     string  `json:"image_url"`
 }
 
 type ProductInput struct {
@@ -31,6 +32,7 @@ type ProductInput struct {
 	Price       float64 `json:"price"`
 	Stock       int     `json:"stock"`
 	CategoryID  int     `json:"category_id"`
+	ImageURL    string  `json:"image_url"`
 }
 
 func validProduct(p ProductInput) bool {
@@ -46,15 +48,15 @@ func (h *ProductHandler) GetProducts(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	query := `
+	rows, err := h.DB.Query(ctx, `
 		SELECT p.product_id, p.product_name, p.description,
-		       p.price, p.stock, p.category_id, c.category_name
+		       p.price, p.stock, p.category_id, c.category_name,
+		       COALESCE(p.image_url, '')
 		FROM products p
 		JOIN categories c ON p.category_id = c.category_id
 		ORDER BY p.product_id
-	`
+	`)
 
-	rows, err := h.DB.Query(ctx, query)
 	if err != nil {
 		writeDBError(w, err)
 		return
@@ -74,6 +76,7 @@ func (h *ProductHandler) GetProducts(w http.ResponseWriter, r *http.Request) {
 			&p.Stock,
 			&p.CategoryID,
 			&p.CategoryName,
+			&p.ImageURL,
 		); err != nil {
 			writeDBError(w, err)
 			return
@@ -105,7 +108,8 @@ func (h *ProductHandler) GetProduct(w http.ResponseWriter, r *http.Request) {
 
 	err = h.DB.QueryRow(ctx, `
 		SELECT p.product_id, p.product_name, p.description,
-		       p.price, p.stock, p.category_id, c.category_name
+		       p.price, p.stock, p.category_id, c.category_name,
+		       COALESCE(p.image_url, '')
 		FROM products p
 		JOIN categories c ON p.category_id = c.category_id
 		WHERE p.product_id = $1
@@ -117,6 +121,7 @@ func (h *ProductHandler) GetProduct(w http.ResponseWriter, r *http.Request) {
 		&p.Stock,
 		&p.CategoryID,
 		&p.CategoryName,
+		&p.ImageURL,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -152,16 +157,17 @@ func (h *ProductHandler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 
 	err := h.DB.QueryRow(ctx, `
 		INSERT INTO products
-			(product_name, description, price, stock, category_id)
-		VALUES ($1, $2, $3, $4, $5)
+			(product_name, description, price, stock, category_id, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING product_id, product_name, description,
-		          price, stock, category_id
+		          price, stock, category_id, COALESCE(image_url, '')
 	`,
 		strings.TrimSpace(p.ProductName),
 		strings.TrimSpace(p.Description),
 		p.Price,
 		p.Stock,
 		p.CategoryID,
+		strings.TrimSpace(p.ImageURL),
 	).Scan(
 		&result.ProductID,
 		&result.ProductName,
@@ -169,6 +175,7 @@ func (h *ProductHandler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		&result.Price,
 		&result.Stock,
 		&result.CategoryID,
+		&result.ImageURL,
 	)
 
 	if err != nil {
@@ -210,16 +217,18 @@ func (h *ProductHandler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		    description = $2,
 		    price = $3,
 		    stock = $4,
-		    category_id = $5
-		WHERE product_id = $6
+		    category_id = $5,
+		    image_url = $6
+		WHERE product_id = $7
 		RETURNING product_id, product_name, description,
-		          price, stock, category_id
+		          price, stock, category_id, COALESCE(image_url, '')
 	`,
 		strings.TrimSpace(p.ProductName),
 		strings.TrimSpace(p.Description),
 		p.Price,
 		p.Stock,
 		p.CategoryID,
+		strings.TrimSpace(p.ImageURL),
 		id,
 	).Scan(
 		&result.ProductID,
@@ -228,6 +237,7 @@ func (h *ProductHandler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		&result.Price,
 		&result.Stock,
 		&result.CategoryID,
+		&result.ImageURL,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -285,7 +295,8 @@ func (h *ProductHandler) SearchProducts(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := h.DB.Query(ctx, `
 		SELECT p.product_id, p.product_name, p.description,
-		       p.price, p.stock, p.category_id, c.category_name
+		       p.price, p.stock, p.category_id, c.category_name,
+		       COALESCE(p.image_url, '')
 		FROM products p
 		JOIN categories c ON p.category_id = c.category_id
 		WHERE p.product_name ILIKE $1
@@ -302,6 +313,7 @@ func (h *ProductHandler) SearchProducts(w http.ResponseWriter, r *http.Request) 
 
 	for rows.Next() {
 		var p Product
+
 		if err := rows.Scan(
 			&p.ProductID,
 			&p.ProductName,
@@ -310,10 +322,12 @@ func (h *ProductHandler) SearchProducts(w http.ResponseWriter, r *http.Request) 
 			&p.Stock,
 			&p.CategoryID,
 			&p.CategoryName,
+			&p.ImageURL,
 		); err != nil {
 			writeDBError(w, err)
 			return
 		}
+
 		products = append(products, p)
 	}
 
@@ -340,7 +354,8 @@ func (h *ProductHandler) FilterProducts(w http.ResponseWriter, r *http.Request) 
 
 	rows, err := h.DB.Query(ctx, `
 		SELECT p.product_id, p.product_name, p.description,
-		       p.price, p.stock, p.category_id, c.category_name
+		       p.price, p.stock, p.category_id, c.category_name,
+		       COALESCE(p.image_url, '')
 		FROM products p
 		JOIN categories c ON p.category_id = c.category_id
 		WHERE p.category_id = $1
@@ -357,6 +372,7 @@ func (h *ProductHandler) FilterProducts(w http.ResponseWriter, r *http.Request) 
 
 	for rows.Next() {
 		var p Product
+
 		if err := rows.Scan(
 			&p.ProductID,
 			&p.ProductName,
@@ -365,10 +381,12 @@ func (h *ProductHandler) FilterProducts(w http.ResponseWriter, r *http.Request) 
 			&p.Stock,
 			&p.CategoryID,
 			&p.CategoryName,
+			&p.ImageURL,
 		); err != nil {
 			writeDBError(w, err)
 			return
 		}
+
 		products = append(products, p)
 	}
 
@@ -379,6 +397,3 @@ func (h *ProductHandler) FilterProducts(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, products)
 }
-
-// ป้องกัน unused import ในกรณีปรับโค้ดต่อ
-var _ = strconv.Itoa
