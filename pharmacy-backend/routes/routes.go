@@ -1,4 +1,3 @@
-
 package routes
 
 import (
@@ -19,118 +18,68 @@ func New(db *pgxpool.Pool) http.Handler {
 	categoryHandler := handlers.CategoryHandler{DB: db}
 	authHandler := handlers.AuthHandler{DB: db}
 	cartHandler := handlers.CartHandler{DB: db}
+	orderHandler := handlers.OrderHandler{DB: db}
 	adminHandler := handlers.AdminHandler{DB: db}
 
-	// =====================================
-	// Authentication API
-	// =====================================
-
+	// Authentication
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
 
-	// =====================================
-	// Product API - Public
-	// =====================================
-
+	// Products - Public
 	mux.HandleFunc("GET /api/products", productHandler.GetProducts)
 	mux.HandleFunc("GET /api/products/search", productHandler.SearchProducts)
 	mux.HandleFunc("GET /api/products/category", productHandler.FilterProducts)
 	mux.HandleFunc("GET /api/products/{id}", productHandler.GetProduct)
 
-	// =====================================
-	// Product API - Admin Only
-	// =====================================
+	// Products - Admin
+	mux.Handle("POST /api/products",
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.CreateProduct)))
+	mux.Handle("PUT /api/products/{id}",
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.UpdateProduct)))
+	mux.Handle("DELETE /api/products/{id}",
+		middleware.RequireAdmin(http.HandlerFunc(productHandler.DeleteProduct)))
 
-	mux.Handle(
-		"POST /api/products",
-		middleware.RequireAdmin(http.HandlerFunc(productHandler.CreateProduct)),
-	)
-
-	mux.Handle(
-		"PUT /api/products/{id}",
-		middleware.RequireAdmin(http.HandlerFunc(productHandler.UpdateProduct)),
-	)
-
-	mux.Handle(
-		"DELETE /api/products/{id}",
-		middleware.RequireAdmin(http.HandlerFunc(productHandler.DeleteProduct)),
-	)
-
-	// =====================================
-	// Category API - Public
-	// =====================================
-
+	// Categories - Public
 	mux.HandleFunc("GET /api/categories", categoryHandler.GetCategories)
 	mux.HandleFunc("GET /api/categories/{id}", categoryHandler.GetCategory)
 
-	// =====================================
-	// Category API - Admin Only
-	// =====================================
+	// Categories - Admin
+	mux.Handle("POST /api/categories",
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.CreateCategory)))
+	mux.Handle("PUT /api/categories/{id}",
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.UpdateCategory)))
+	mux.Handle("DELETE /api/categories/{id}",
+		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.DeleteCategory)))
 
-	mux.Handle(
-		"POST /api/categories",
-		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.CreateCategory)),
-	)
+	// Cart - Authenticated
+	mux.Handle("GET /api/cart",
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.GetCart)))
+	mux.Handle("POST /api/cart/items",
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.AddCartItem)))
+	mux.Handle("PUT /api/cart/items/{id}",
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.UpdateCartItem)))
+	mux.Handle("DELETE /api/cart/items/{id}",
+		middleware.RequireAuth(http.HandlerFunc(cartHandler.RemoveCartItem)))
 
-	mux.Handle(
-		"PUT /api/categories/{id}",
-		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.UpdateCategory)),
-	)
+	// Orders - Authenticated
+	mux.Handle("POST /api/orders",
+		middleware.RequireAuth(http.HandlerFunc(orderHandler.CreateOrder)))
+	mux.Handle("GET /api/orders/my",
+		middleware.RequireAuth(http.HandlerFunc(orderHandler.GetMyOrders)))
 
-	mux.Handle(
-		"DELETE /api/categories/{id}",
-		middleware.RequireAdmin(http.HandlerFunc(categoryHandler.DeleteCategory)),
-	)
+	// Admin
+	mux.Handle("GET /api/admin/users",
+		middleware.RequireAdmin(http.HandlerFunc(adminHandler.GetUsers)))
 
-	// =====================================
-	// Cart API - Authenticated Users
-	// =====================================
-
-	mux.Handle(
-		"GET /api/cart",
-		middleware.RequireAuth(http.HandlerFunc(cartHandler.GetCart)),
-	)
-
-	mux.Handle(
-		"POST /api/cart/items",
-		middleware.RequireAuth(http.HandlerFunc(cartHandler.AddCartItem)),
-	)
-
-	mux.Handle(
-		"PUT /api/cart/items/{id}",
-		middleware.RequireAuth(http.HandlerFunc(cartHandler.UpdateCartItem)),
-	)
-
-	mux.Handle(
-		"DELETE /api/cart/items/{id}",
-		middleware.RequireAuth(http.HandlerFunc(cartHandler.RemoveCartItem)),
-	)
-
-	// =====================================
-	// Admin API
-	// =====================================
-
-	mux.Handle(
-		"GET /api/admin/users",
-		middleware.RequireAdmin(http.HandlerFunc(adminHandler.GetUsers)),
-	)
-
-	// =====================================
 	// Health Check
-	// =====================================
-
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","orders_api":true}`))
 	})
 
 	return cors(mux)
 }
-
-// =====================================
-// CORS Middleware
-// =====================================
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,14 +1,22 @@
-
 package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+func authError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": message,
+	})
+}
 
 // RequireAuth ตรวจสอบ JWT ก่อนเข้าใช้งาน API
 func RequireAuth(next http.Handler) http.Handler {
@@ -17,11 +25,7 @@ func RequireAuth(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 
 		if len(authHeader) < 8 || authHeader[:7] != "Bearer " {
-			http.Error(
-				w,
-				`{"error":"กรุณาเข้าสู่ระบบ"}`,
-				http.StatusUnauthorized,
-			)
+			authError(w, http.StatusUnauthorized, "กรุณาเข้าสู่ระบบ")
 			return
 		}
 
@@ -29,48 +33,35 @@ func RequireAuth(next http.Handler) http.Handler {
 		secret := os.Getenv("JWT_SECRET")
 
 		if secret == "" {
-			http.Error(
-				w,
-				`{"error":"Server configuration error"}`,
-				http.StatusInternalServerError,
-			)
+			authError(w, http.StatusInternalServerError, "Server configuration error")
 			return
 		}
 
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if token.Method != jwt.SigningMethodHS256 {
-				return nil, jwt.ErrSignatureInvalid
-			}
+		token, err := jwt.Parse(
+			tokenString,
+			func(token *jwt.Token) (interface{}, error) {
+				if token.Method != jwt.SigningMethodHS256 {
+					return nil, jwt.ErrSignatureInvalid
+				}
+				return []byte(secret), nil
+			},
+			jwt.WithValidMethods([]string{"HS256"}),
+		)
 
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
-			http.Error(
-				w,
-				`{"error":"Token ไม่ถูกต้องหรือหมดอายุ"}`,
-				http.StatusUnauthorized,
-			)
+		if err != nil || token == nil || !token.Valid {
+			authError(w, http.StatusUnauthorized, "Token ไม่ถูกต้องหรือหมดอายุ")
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			http.Error(
-				w,
-				`{"error":"ข้อมูล Token ไม่ถูกต้อง"}`,
-				http.StatusUnauthorized,
-			)
+			authError(w, http.StatusUnauthorized, "ข้อมูล Token ไม่ถูกต้อง")
 			return
 		}
 
 		rawID, exists := claims["user_id"]
 		if !exists {
-			http.Error(
-				w,
-				`{"error":"ไม่พบ user_id ใน Token"}`,
-				http.StatusUnauthorized,
-			)
+			authError(w, http.StatusUnauthorized, "ไม่พบ user_id ใน Token")
 			return
 		}
 
@@ -79,7 +70,6 @@ func RequireAuth(next http.Handler) http.Handler {
 		switch value := rawID.(type) {
 		case float64:
 			userID = int(value)
-
 		case string:
 			userID, err = strconv.Atoi(value)
 			if err != nil {
@@ -88,21 +78,12 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 
 		if userID <= 0 {
-			http.Error(
-				w,
-				`{"error":"user_id ไม่ถูกต้อง"}`,
-				http.StatusUnauthorized,
-			)
+			authError(w, http.StatusUnauthorized, "user_id ไม่ถูกต้อง")
 			return
 		}
 
-		ctx := contextWithUserID(r.Context(), userID)
+		ctx := context.WithValue(r.Context(), "user_id", userID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// ส่ง user_id เข้า Context
-func contextWithUserID(ctx context.Context, userID int) context.Context {
-	return context.WithValue(ctx, "user_id", userID)
 }

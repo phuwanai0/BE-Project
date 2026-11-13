@@ -1,5 +1,3 @@
-
-
 package middleware
 
 import (
@@ -22,6 +20,12 @@ func Auth(next http.Handler) http.Handler {
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		secret := os.Getenv("JWT_SECRET")
+
+		if secret == "" {
+			http.Error(w, "ระบบยังไม่ได้ตั้งค่า JWT_SECRET", http.StatusInternalServerError)
+			return
+		}
 
 		claims := &handlers.UserClaims{}
 
@@ -32,11 +36,12 @@ func Auth(next http.Handler) http.Handler {
 				if token.Method != jwt.SigningMethodHS256 {
 					return nil, jwt.ErrSignatureInvalid
 				}
-				return []byte(os.Getenv("JWT_SECRET")), nil
+				return []byte(secret), nil
 			},
+			jwt.WithValidMethods([]string{"HS256"}),
 		)
 
-		if err != nil || !token.Valid {
+		if err != nil || token == nil || !token.Valid {
 			http.Error(w, "Token ไม่ถูกต้องหรือหมดอายุ", http.StatusUnauthorized)
 			return
 		}
